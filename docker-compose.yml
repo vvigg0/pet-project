@@ -1,0 +1,25 @@
+version: "3"
+
+services:
+  api:
+    build: ./api-server
+    depends_on:
+      - dbsvc
+    environment:
+      - DB_SVC_URL=http://dbsvc:8090
+    ports:
+      - "8080:8080"
+    networks:
+      - pet-project_default
+
+  dbsvc:
+    build: ./db-server
+    ports:
+      - "8090:8090"
+    environment:
+      - PG_DSN=host=host.docker.internal port=5432 user=postgres password=12345 dbname=dbgolang sslmode=disable
+    networks:
+      - pet-project_default
+networks:
+  pet-project_default:
+    driver: bridge
