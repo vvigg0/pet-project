@@ -3,27 +3,19 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
 
-const (
-	host     = "localhost"
-	port     = 5432
-	user     = "postgres"
-	password = "12345"
-	dbname   = "dbgolang"
-)
-
-var psqlInfo string = fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-	host, port, user, password, dbname)
 var dsn string = os.Getenv("PG_DSN")
 
 type Employee struct {
+	Id         int    `json:"id"`
 	Name       string `json:"name"`
 	Secondname string `json:"secondname"`
 	Job        string `json:"job"`
@@ -43,8 +35,8 @@ func addEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Хуйня JSON", http.StatusBadRequest)
 		return
 	}
-	result, err := db.Exec("Insert into sotrudniki(имя,фамилия,должность,отдел_id) VALUES($1,$2,$3,$4)",
-		emp.Name, emp.Secondname, emp.Job, emp.Otdel)
+	result, err := db.Exec("Insert into sotrudniki(id,имя,фамилия,должность,отдел_id) VALUES($1,$2,$3,$4,$5)",
+		emp.Id, emp.Name, emp.Secondname, emp.Job, emp.Otdel)
 	if err != nil {
 		http.Error(w, "Неизвестная ошибка при работе с БД", 520)
 		return
@@ -68,7 +60,7 @@ func employeesHandler(w http.ResponseWriter, r *http.Request) {
 		query = " WHERE отдел_id=$1"
 		args = append(args, otdel)
 	}
-	rows, err := db.Query("SELECT имя,фамилия,должность,отдел_id from sotrudniki"+query, args...)
+	rows, err := db.Query("SELECT id,имя,фамилия,должность,отдел_id from sotrudniki"+query, args...)
 	if err != nil {
 		http.Error(w, "Возникла ошибка при выполнении очевидного запроса", http.StatusInternalServerError)
 		log.Println("Ошибка при запросе сотрудников", err)
@@ -77,7 +69,7 @@ func employeesHandler(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	for rows.Next() {
 		emp := Employee{}
-		err := rows.Scan(&emp.Name, &emp.Secondname, &emp.Job, &emp.Otdel)
+		err := rows.Scan(&emp.Id, &emp.Name, &emp.Secondname, &emp.Job, &emp.Otdel)
 		if err != nil {
 			log.Println("Возникла ошибка при обработке одного из сотрудников")
 		}
@@ -85,6 +77,37 @@ func employeesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(employees)
+}
+func employeeHandler(w http.ResponseWriter, r *http.Request) {
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		http.Error(w, "Ошибка при открытии БД", http.StatusInternalServerError)
+		log.Println("Ошибка при открытии базы данных")
+		return
+	}
+	defer db.Close()
+	parts := strings.Split(r.URL.Path, "/")
+	empId := parts[2]
+	intEmpId, _ := strconv.Atoi(empId)
+	if intEmpId < 1 {
+		http.Error(w, "Неверный ID", http.StatusNotFound)
+		log.Println("Ввели неверный ID")
+		return
+	}
+	result, err := db.Exec("DELETE FROM sotrudniki WHERE id=$1", intEmpId)
+	if err != nil {
+		http.Error(w, "Ошибка при удалении сотрудника", http.StatusInternalServerError)
+		log.Println("Ошибка при удалении сотрудника")
+		return
+	}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		http.Error(w, "Такого ID нету,ничего не удалилось", http.StatusNotFound)
+		log.Println("Несуществующий ID,ничего не удалилось")
+		return
+	}
+	log.Println("Сотрудник успешно удален")
+	w.WriteHeader(http.StatusCreated)
 }
 func main() {
 	db, err := sql.Open("postgres", dsn)
@@ -94,6 +117,7 @@ func main() {
 	db.Close()
 	http.HandleFunc("/addemployee", addEmployeeHandler)
 	http.HandleFunc("/employees", employeesHandler)
+	http.HandleFunc("/employee/", employeeHandler)
 	log.Println("DB сервер запущен на порте 8090")
 	err = http.ListenAndServe(":8090", nil)
 	if err != nil {

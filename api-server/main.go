@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
+// TO-DO ВЫВОД ID В GET ЗАПРОСЕ ТАК ЖЕ КАК В БД
 type Employee struct {
+	Id         int    `json:"id"`
 	Name       string `json:"name"`
 	Secondname string `json:"secondname"`
 	Job        string `json:"job"`
@@ -58,14 +62,50 @@ func employeesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain;charset=utf-8")
-	for i, e := range emps {
+	for _, e := range emps {
 		fmt.Fprintf(w, "%d. %s %s %s - отдел %d\n",
-			i+1, e.Name, e.Secondname, e.Job, e.Otdel)
+			e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
 	}
+}
+func employeeHandler(w http.ResponseWriter, r *http.Request) {
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 {
+		http.Error(w, "Неверный URL", http.StatusBadRequest)
+		return
+	}
+	empId := parts[2]
+	_, err := strconv.Atoi(empId)
+	if err != nil {
+		http.Error(w, "Введите корректный ID", http.StatusBadRequest)
+		log.Println("Ввели ID не число")
+		return
+	}
+	url := fmt.Sprintf("http://dbsvc:8090/employee/%s", empId)
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		http.Error(w, "Ошибка при создании запроса", http.StatusInternalServerError)
+		log.Println("Ошибка при создании запроса")
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	log.Println(err)
+	if err != nil {
+		http.Error(w, "Ошибка при выполнении запроса", http.StatusBadGateway)
+		log.Println("Ошибка при выполнении запроса", err)
+		return
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		http.Error(w, "Такого ID нету", http.StatusBadRequest)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "Сотрудник id:%s успешно удален", empId)
 }
 func main() {
 	http.HandleFunc("/employees", employeesHandler)
 	http.HandleFunc("/addemployee", addEmployeeHandler)
+	http.HandleFunc("/employee/", employeeHandler)
 	log.Println("API сервер запущен на порте 8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
