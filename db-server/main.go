@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -35,7 +36,7 @@ func addEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Хуйня JSON", http.StatusBadRequest)
 		return
 	}
-	result, err := db.Exec("Insert into sotrudniki(id,имя,фамилия,должность,отдел_id) VALUES($1,$2,$3,$4,$5)",
+	result, err := db.Exec("Insert into sotrudniki(id,name,secondname,job,otdel) VALUES($1,$2,$3,$4,$5)",
 		emp.Id, emp.Name, emp.Secondname, emp.Job, emp.Otdel)
 	if err != nil {
 		http.Error(w, "Неизвестная ошибка при работе с БД", 520)
@@ -55,12 +56,58 @@ func employeesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 	var args []interface{}
-	query := ""
-	if otdel := r.URL.Query().Get("otdel"); otdel != "" {
-		query = " WHERE отдел_id=$1"
-		args = append(args, otdel)
+	givenQuery := r.URL.Query()
+	query := []string{}
+	execQuery := ""
+	count := 0
+	if len(givenQuery) > 0 {
+		for k := range givenQuery {
+			log.Println(k)
+			if len(givenQuery[k]) == 1 {
+				for _, val := range givenQuery[k] {
+					count++
+					s := []byte(val)
+					for i, l := range s {
+						if l == 95 {
+							s[i] = 32
+							val = string(s)
+						}
+					}
+					query = append(query, fmt.Sprintf("%s=$%d", k, count))
+					args = append(args, val)
+				}
+			} else {
+				subQuery := fmt.Sprintf(" %s IN ", k)
+				placeholders := []string{}
+				for _, vals := range givenQuery[k] {
+					vals := strings.Split(vals, " ")
+					for _, val := range vals {
+						count++
+						s := []byte(val)
+						for i, l := range s {
+							if l == 95 {
+								s[i] = 32
+								val = string(s)
+							}
+						}
+						placeholders = append(placeholders, fmt.Sprintf("$%d", count))
+						if k == "id" || k == "otdel" {
+							intVal, _ := strconv.Atoi(val)
+							args = append(args, intVal)
+						} else {
+							args = append(args, val)
+						}
+					}
+				}
+				query = append(query, subQuery+"("+strings.Join(placeholders, ",")+")")
+			}
+		}
+		execQuery = " WHERE " + strings.Join(query, " AND ")
+	} else {
+		execQuery = ""
 	}
-	rows, err := db.Query("SELECT id,имя,фамилия,должность,отдел_id from sotrudniki"+query, args...)
+	log.Println(args)
+	rows, err := db.Query("SELECT id,name,secondname,job,otdel from sotrudniki"+execQuery, args...)
 	if err != nil {
 		http.Error(w, "Возникла ошибка при выполнении очевидного запроса", http.StatusInternalServerError)
 		log.Println("Ошибка при запросе сотрудников", err)
