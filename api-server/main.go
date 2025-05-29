@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -20,26 +21,8 @@ type Employee struct {
 	Otdel      int    `json:"otdel"`
 }
 
-func addEmployeeHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Неверный метод", http.StatusMethodNotAllowed)
-		return
-	}
-	var emp Employee
-	err := json.NewDecoder(r.Body).Decode(&emp)
-	if err != nil {
-		http.Error(w, "Неверный JSON", http.StatusBadRequest)
-		return
-	}
-	body, _ := json.Marshal(emp)
-	resp, err := http.Post("http://dbsvc:8090/addemployee", "application/json", bytes.NewBuffer(body))
-	if err != nil || http.StatusCreated != resp.StatusCode {
-		http.Error(w, "DB сервер тупанул", http.StatusInternalServerError)
-		log.Println(err)
-		return
-	}
-	w.WriteHeader(http.StatusCreated)
-}
+var dbsvc string = os.Getenv("DB_SVC_URL")
+
 func IsValidWord(s string) error {
 	for _, r := range s {
 		if !unicode.IsLetter(r) {
@@ -107,15 +90,10 @@ func validateQuery(query url.Values) string {
 	}
 	return "?" + strings.Join(execStr, "&")
 }
-func employeesHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Неверный метод", http.StatusMethodNotAllowed)
-		return
-	}
+func handleGetEmployees(w http.ResponseWriter, r *http.Request) {
 	urlParams := r.URL.Query()
 	legitQueryStr := validateQuery(urlParams)
-	log.Println(legitQueryStr)
-	resp, err := http.Get("http://dbsvc:8090/employees" + legitQueryStr)
+	resp, err := http.Get(dbsvc + "/employees" + legitQueryStr)
 	if err != nil {
 		http.Error(w, "Ошибка при выполнении запроса к БД", http.StatusInternalServerError)
 		return
@@ -133,6 +111,84 @@ func employeesHandler(w http.ResponseWriter, r *http.Request) {
 			e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
 	}
 }
+func handlePostEmployees(w http.ResponseWriter, r *http.Request) {
+	var emps []Employee
+	err := json.NewDecoder(r.Body).Decode(&emps)
+	if err != nil {
+		http.Error(w, "Неверный JSON", http.StatusBadRequest)
+		return
+	}
+	body, _ := json.Marshal(emps)
+	resp, err := http.Post(dbsvc+"/employees", "application/json", bytes.NewBuffer(body))
+	if err != nil || http.StatusCreated != resp.StatusCode {
+		http.Error(w, "DB сервер тупанул", http.StatusInternalServerError)
+		log.Println(err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	var names string
+	for _, emp := range emps {
+		names = names + " " + emp.Name
+	}
+	fmt.Fprintf(w, "Успешно добавлены сотрудники: %s", names)
+}
+func handleDeleteEmployees(w http.ResponseWriter, r *http.Request) {
+	urlParams := r.URL.Query()
+	queryStr := validateQuery(urlParams)
+	req, err := http.NewRequest("DELETE", dbsvc+"/employees"+queryStr, nil)
+	if err != nil {
+		http.Error(w, "Ошибка при создании запроса", http.StatusInternalServerError)
+		log.Println("Ошибка при создании запроса")
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "Ошибка при выполнении запроса", http.StatusBadGateway)
+		log.Println("Ошибка при выполнении запроса", err)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "Сотрудники удалены")
+}
+func handlePutEmployees(w http.ResponseWriter, r *http.Request) {
+	var emp Employee
+	err := json.NewDecoder(r.Body).Decode(&emp)
+	if err != nil {
+		http.Error(w, "Неверный JSON", http.StatusBadRequest)
+		return
+	}
+	body, _ := json.Marshal(emp)
+	urlParams := r.URL.Query()
+	legitQueryStr := validateQuery(urlParams)
+	req, err := http.NewRequest("PUT", dbsvc+"/employees"+legitQueryStr, bytes.NewBuffer(body))
+	if err != nil {
+		http.Error(w, "Ошибка при создании запроса", http.StatusInternalServerError)
+		log.Println("Ошибка при создании запроса")
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, "Ошибка при выполнении запроса", http.StatusBadGateway)
+		log.Println("Ошибка при выполнении запроса", err)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintln(w, "Изменение выполнено")
+}
+func employeesHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		handleGetEmployees(w, r)
+	case http.MethodPost:
+		handlePostEmployees(w, r)
+	case http.MethodDelete:
+		handleDeleteEmployees(w, r)
+	case http.MethodPut:
+		handlePutEmployees(w, r)
+	}
+}
 func employeeHandler(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(r.URL.Path, "/")
 	if len(parts) < 3 {
@@ -146,7 +202,7 @@ func employeeHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Ввели ID не число")
 		return
 	}
-	url := fmt.Sprintf("http://dbsvc:8090/employee/%s", empId)
+	url := fmt.Sprintf(dbsvc+"/employee/%s", empId)
 	req, err := http.NewRequest(http.MethodDelete, url, nil)
 	if err != nil {
 		http.Error(w, "Ошибка при создании запроса", http.StatusInternalServerError)
@@ -154,7 +210,6 @@ func employeeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp, err := http.DefaultClient.Do(req)
-	log.Println(err)
 	if err != nil {
 		http.Error(w, "Ошибка при выполнении запроса", http.StatusBadGateway)
 		log.Println("Ошибка при выполнении запроса", err)
@@ -170,7 +225,6 @@ func employeeHandler(w http.ResponseWriter, r *http.Request) {
 }
 func main() {
 	http.HandleFunc("/employees", employeesHandler)
-	http.HandleFunc("/addemployee", addEmployeeHandler)
 	http.HandleFunc("/employee/", employeeHandler)
 	log.Println("API сервер запущен на порте 8080")
 	err := http.ListenAndServe(":8080", nil)
