@@ -3,9 +3,12 @@ version: "3"
 services:
   api:
     build: ./api-server
+    env_file:
+    - .env
     depends_on:
       - dbsvc
     environment:
+      - SECRET_KEY=${SECRET_KEY}
       - DB_SVC_URL=http://dbsvc:8090
     ports:
       - "8080:8080"
@@ -14,10 +17,12 @@ services:
 
   dbsvc:
     build: ./db-server
+    env_file:
+    - .env
     ports:
       - "8090:8090"
     environment:
-      - PG_DSN=host=host.docker.internal port=5432 user=postgres password=12345 dbname=dbgolang sslmode=disable
+      - PG_DSN=${PG_DSN}
     networks:
       - pet-project_default
 networks:
