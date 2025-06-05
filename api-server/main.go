@@ -4,14 +4,21 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 )
+
+var secretKey = []byte(os.Getenv("SECRET_KEY"))
+var dbsvc string = os.Getenv("DB_SVC_URL")
 
 type Employee struct {
 	Id         int    `json:"id"`
@@ -20,8 +27,11 @@ type Employee struct {
 	Job        string `json:"job"`
 	Otdel      int    `json:"otdel"`
 }
-
-var dbsvc string = os.Getenv("DB_SVC_URL")
+type CustomClaims struct {
+	Username string `json:"username"`
+	Role     string `json:"role"`
+	jwt.RegisteredClaims
+}
 
 func IsValidWord(s string) error {
 	for _, r := range s {
@@ -113,12 +123,13 @@ func handleGetEmployees(w http.ResponseWriter, r *http.Request) {
 }
 func handlePostEmployees(w http.ResponseWriter, r *http.Request) {
 	var emps []Employee
-	err := json.NewDecoder(r.Body).Decode(&emps)
+	body, _ := io.ReadAll(r.Body)
+	err := json.Unmarshal(body, &emps)
 	if err != nil {
 		http.Error(w, "Неверный JSON", http.StatusBadRequest)
 		return
 	}
-	body, _ := json.Marshal(emps)
+	body, _ = json.Marshal(emps)
 	resp, err := http.Post(dbsvc+"/employees", "application/json", bytes.NewBuffer(body))
 	if err != nil || http.StatusCreated != resp.StatusCode {
 		http.Error(w, "DB сервер тупанул", http.StatusInternalServerError)
@@ -223,9 +234,74 @@ func employeeHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Сотрудник id:%s успешно удален", empId)
 }
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	var creds struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	err := json.NewDecoder(r.Body).Decode(&creds)
+	if err != nil {
+		http.Error(w, "Неверный JSON", http.StatusBadRequest)
+		return
+	}
+	var role string
+	switch {
+	case creds.Username == os.Getenv("ADMIN_NAME") && creds.Password == os.Getenv("ADMIN_PASSWORD"):
+		role = "admin"
+	default:
+		role = "guest"
+	}
+	claims := CustomClaims{
+		Username: creds.Username,
+		Role:     role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
+			Issuer:    "jwt-server",
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString(secretKey)
+	if err != nil {
+		http.Error(w, "Ошибка генерации токена", http.StatusInternalServerError)
+		log.Printf("Ошибка генерации токена: %v,%v", token, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": signedToken})
+	fmt.Fprintf(w, "Ваша роль: %s", claims.Role)
+}
+func RoleMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" || !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, "Нет токена", http.StatusUnauthorized)
+			return
+		}
+		tokenStr := strings.TrimPrefix(auth, "Bearer ")
+		token, err := jwt.ParseWithClaims(tokenStr, &CustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+			return secretKey, nil
+		})
+		if err != nil || !token.Valid {
+			http.Error(w, "Неверный токен", http.StatusUnauthorized)
+			log.Printf("Неверный токен: %v,%v", token, err)
+			return
+		}
+		role := token.Claims.(*CustomClaims).Role
+		switch r.Method {
+		case "POST", "PUT", "DELETE":
+			if role != "admin" {
+				http.Error(w, "Недостаточно прав", http.StatusForbidden)
+				return
+			}
+		default:
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 func main() {
-	http.HandleFunc("/employees", employeesHandler)
-	http.HandleFunc("/employee/", employeeHandler)
+	http.Handle("/employees", RoleMiddleware(http.HandlerFunc(employeesHandler)))
+	http.Handle("/employee/", RoleMiddleware(http.HandlerFunc(employeeHandler)))
+	http.HandleFunc("/login", loginHandler)
 	log.Println("API сервер запущен на порте 8080")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
