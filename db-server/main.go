@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -109,23 +108,15 @@ func dbGetEmployees(w http.ResponseWriter, r *http.Request) {
 }
 func buildInsertQuery(emps []Employee) (string, []interface{}) {
 	count := 0
-	i := 0
 	var args []interface{}
+	placeholders := []string{}
 	resultPlHolds := []string{}
 	for _, emp := range emps {
-		i++
-		placeholders := []string{}
-		v := reflect.ValueOf(emp)
-		size := v.NumField()
-		for count < size*i {
-			count++
-			placeholders = append(placeholders, fmt.Sprintf("$%d", count))
-		}
-		for i := 0; i < size; i++ {
-			args = append(args, v.Field(i).Interface())
-		}
-		resultPlHolds = append(resultPlHolds, "("+strings.Join(placeholders, ",")+")")
+		placeholders = append(placeholders, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d)", count+1, count+2, count+3, count+4, count+5))
+		args = append(args, emp.Id, emp.Name, emp.Secondname, emp.Job, emp.Otdel)
+		count += 5
 	}
+	resultPlHolds = append(resultPlHolds, placeholders...)
 	placeholdStr := strings.Join(resultPlHolds, ",")
 	return placeholdStr, args
 }
