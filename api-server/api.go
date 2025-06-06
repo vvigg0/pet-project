@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	rds "servers/pkg/cache"
 	"strconv"
 	"strings"
 	"time"
@@ -33,7 +34,7 @@ type CustomClaims struct {
 	jwt.RegisteredClaims
 }
 
-func IsValidWord(s string) error {
+func isValidWord(s string) error {
 	for _, r := range s {
 		if !unicode.IsLetter(r) {
 			return fmt.Errorf("не является валидной строкой")
@@ -56,7 +57,7 @@ func validateQuery(query url.Values) string {
 			break
 		} else if k == "name" {
 			for _, name := range param {
-				err := IsValidWord(name)
+				err := isValidWord(name)
 				if err != nil {
 					log.Println("Неверное имя - ", name)
 					continue
@@ -65,7 +66,7 @@ func validateQuery(query url.Values) string {
 			}
 		} else if k == "secondname" {
 			for _, secondname := range param {
-				err := IsValidWord(secondname)
+				err := isValidWord(secondname)
 				if err != nil {
 					log.Println("Неверная фамилия - ", secondname)
 					continue
@@ -76,7 +77,7 @@ func validateQuery(query url.Values) string {
 			for _, job := range param {
 				partsJob := strings.Split(job, "_")
 				for _, part := range partsJob {
-					err := IsValidWord(part)
+					err := isValidWord(part)
 					if err != nil {
 						log.Println("Неверная должность - ", job)
 						continue
@@ -103,23 +104,38 @@ func validateQuery(query url.Values) string {
 func handleGetEmployees(w http.ResponseWriter, r *http.Request) {
 	urlParams := r.URL.Query()
 	legitQueryStr := validateQuery(urlParams)
+	cacheKey := "employees" + legitQueryStr
+	var emps []Employee
+	start := time.Now()
+	val, err := rds.Client.Get(rds.Ctx, cacheKey).Result()
+	if err == nil {
+		_ = json.Unmarshal([]byte(val), &emps)
+		w.Header().Set("Content-Type", "text/plain;charset=utf-8")
+		for _, e := range emps {
+			fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
+		}
+		log.Printf("Достали данные из кэша за %v", time.Since(start))
+		return
+	}
+	start = time.Now()
 	resp, err := http.Get(dbsvc + "/employees" + legitQueryStr)
 	if err != nil {
 		http.Error(w, "Ошибка при выполнении запроса к БД", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
-	var emps []Employee
 	err = json.NewDecoder(resp.Body).Decode(&emps)
 	if err != nil {
 		http.Error(w, "JSON хуйня", http.StatusInternalServerError)
 		return
 	}
+	response, _ := json.Marshal(emps)
+	rds.Client.Set(rds.Ctx, cacheKey, response, time.Minute*10)
 	w.Header().Set("Content-Type", "text/plain;charset=utf-8")
 	for _, e := range emps {
-		fmt.Fprintf(w, "%d. %s %s %s - отдел %d\n",
-			e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
+		fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
 	}
+	log.Printf("Достали данные из БД за %v", time.Since(start))
 }
 func handlePostEmployees(w http.ResponseWriter, r *http.Request) {
 	var emps []Employee
@@ -299,6 +315,7 @@ func RoleMiddleware(next http.Handler) http.Handler {
 	})
 }
 func main() {
+	rds.Init()
 	http.Handle("/employees", RoleMiddleware(http.HandlerFunc(employeesHandler)))
 	http.Handle("/employee/", RoleMiddleware(http.HandlerFunc(employeeHandler)))
 	http.HandleFunc("/login", loginHandler)
