@@ -4,7 +4,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o db-server .
+RUN go build -o /app/db-server ./cmd/db && ls -l /app
 #Tests
 FROM build-stage AS run-test-stage
 RUN go test -v ./...

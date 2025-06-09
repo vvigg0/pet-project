@@ -1,4 +1,4 @@
-package main
+package dbService
 
 import (
 	"database/sql"
@@ -7,22 +7,11 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
+	"pet-project/internal/models"
+	"pet-project/pkg/config"
 	"strconv"
 	"strings"
-
-	_ "github.com/lib/pq"
 )
-
-var dsn string = os.Getenv("PG_DSN")
-
-type Employee struct {
-	Id         int    `json:"id"`
-	Name       string `json:"name"`
-	Secondname string `json:"secondname"`
-	Job        string `json:"job"`
-	Otdel      int    `json:"otdel"`
-}
 
 func buildGetExecQuery(givenQuery url.Values, count int) (string, []interface{}) {
 	var args []interface{}
@@ -77,9 +66,11 @@ func buildGetExecQuery(givenQuery url.Values, count int) (string, []interface{})
 	}
 	return execQuery, args
 }
-func dbGetEmployees(w http.ResponseWriter, r *http.Request) {
-	employees := []Employee{}
-	db, err := sql.Open("postgres", dsn)
+
+func DbGetEmployees(w http.ResponseWriter, r *http.Request) {
+	employees := []models.Employee{}
+	log.Println(config.PgDsn)
+	db, err := sql.Open("postgres", config.PgDsn)
 	if err != nil {
 		http.Error(w, "Возникла проблема при подключении к БД", http.StatusInternalServerError)
 		log.Println("Возникла проблема при подключении к БД")
@@ -96,7 +87,7 @@ func dbGetEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 	for rows.Next() {
-		emp := Employee{}
+		emp := models.Employee{}
 		err := rows.Scan(&emp.Id, &emp.Name, &emp.Secondname, &emp.Job, &emp.Otdel)
 		if err != nil {
 			log.Println("Возникла ошибка при обработке одного из сотрудников")
@@ -106,7 +97,7 @@ func dbGetEmployees(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(employees)
 }
-func buildInsertQuery(emps []Employee) (string, []interface{}) {
+func buildInsertQuery(emps []models.Employee) (string, []interface{}) {
 	count := 0
 	var args []interface{}
 	placeholders := []string{}
@@ -120,14 +111,14 @@ func buildInsertQuery(emps []Employee) (string, []interface{}) {
 	placeholdStr := strings.Join(resultPlHolds, ",")
 	return placeholdStr, args
 }
-func dbPostEmployees(w http.ResponseWriter, r *http.Request) {
-	db, err := sql.Open("postgres", dsn)
+func DbPostEmployees(w http.ResponseWriter, r *http.Request) {
+	db, err := sql.Open("postgres", config.PgDsn)
 	if err != nil {
 		http.Error(w, "Возникли проблемы на стороне БД", 500)
 		return
 	}
 	defer db.Close()
-	var emps []Employee
+	var emps []models.Employee
 	_ = json.NewDecoder(r.Body).Decode(&emps)
 	placeholders, args := buildInsertQuery(emps)
 	result, err := db.Exec("Insert into sotrudniki(id,name,secondname,job,otdel) VALUES"+placeholders, args...)
@@ -141,8 +132,8 @@ func dbPostEmployees(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	log.Printf("Успешно вставлен %d сотрудник", rowsAffected)
 }
-func dbDeleteEmployees(w http.ResponseWriter, r *http.Request) {
-	db, err := sql.Open("postgres", dsn)
+func DbDeleteEmployees(w http.ResponseWriter, r *http.Request) {
+	db, err := sql.Open("postgres", config.PgDsn)
 	if err != nil {
 		http.Error(w, "Возникли проблемы при открытии базы данных", 500)
 		return
@@ -166,7 +157,7 @@ func dbDeleteEmployees(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "Удаление прошло успешно")
 }
-func buildPutQuery(urlquery url.Values, emp Employee) (string, []interface{}) {
+func buildPutQuery(urlquery url.Values, emp models.Employee) (string, []interface{}) {
 	count := 0
 	SetQuery := []string{}
 	var args []interface{}
@@ -204,14 +195,14 @@ func buildPutQuery(urlquery url.Values, emp Employee) (string, []interface{}) {
 	resultQuery = resultQuery + WhereQuery
 	return resultQuery, args
 }
-func dbPutEmployees(w http.ResponseWriter, r *http.Request) {
-	db, err := sql.Open("postgres", dsn)
+func DbPutEmployees(w http.ResponseWriter, r *http.Request) {
+	db, err := sql.Open("postgres", config.PgDsn)
 	if err != nil {
 		http.Error(w, "Не удалось подключиться к базе данных", http.StatusInternalServerError)
 		log.Println("Не удалось подключиться к БД")
 		return
 	}
-	var emp Employee
+	var emp models.Employee
 	_ = json.NewDecoder(r.Body).Decode(&emp)
 	urlQuery := r.URL.Query()
 	execQuery, args := buildPutQuery(urlQuery, emp)
@@ -232,62 +223,4 @@ func dbPutEmployees(w http.ResponseWriter, r *http.Request) {
 	log.Println("Изменение прошло успешно")
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, "Изменение прошло успешно")
-}
-func employeesHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		dbGetEmployees(w, r)
-	case http.MethodPost:
-		dbPostEmployees(w, r)
-	case http.MethodDelete:
-		dbDeleteEmployees(w, r)
-	case http.MethodPut:
-		dbPutEmployees(w, r)
-	}
-}
-func employeeHandler(w http.ResponseWriter, r *http.Request) {
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		http.Error(w, "Ошибка при открытии БД", http.StatusInternalServerError)
-		log.Println("Ошибка при открытии базы данных")
-		return
-	}
-	defer db.Close()
-	parts := strings.Split(r.URL.Path, "/")
-	empId := parts[2]
-	intEmpId, _ := strconv.Atoi(empId)
-	if intEmpId < 1 {
-		http.Error(w, "Неверный ID", http.StatusNotFound)
-		log.Println("Ввели неверный ID")
-		return
-	}
-	result, err := db.Exec("DELETE FROM sotrudniki WHERE id=$1", intEmpId)
-	if err != nil {
-		http.Error(w, "Ошибка при удалении сотрудника", http.StatusInternalServerError)
-		log.Println("Ошибка при удалении сотрудника")
-		return
-	}
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		http.Error(w, "Такого ID нету,ничего не удалилось", http.StatusNotFound)
-		log.Println("Несуществующий ID,ничего не удалилось")
-		return
-	}
-	log.Println("Сотрудник успешно удален")
-	w.WriteHeader(http.StatusCreated)
-}
-func main() {
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		log.Fatal("Не удалось подключиться к БД")
-	}
-	db.Close()
-	http.HandleFunc("/employees", employeesHandler)
-	http.HandleFunc("/employee/", employeeHandler)
-	log.Println("DB сервер запущен на порте 8090")
-	err = http.ListenAndServe(":8090", nil)
-	if err != nil {
-		log.Fatal("DB сервер не смог запуститься")
-	}
-
 }

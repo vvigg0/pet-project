@@ -2,26 +2,27 @@ version: "3"
 
 services:
   api:
-    build: ./api-server
+    build: 
+      context: ../
+      dockerfile: deploy/Dockerfile.api
     env_file:
-    - .env
+    - ../configs/.env
     depends_on:
       - dbsvc
     environment:
-      - SECRET_KEY=${SECRET_KEY}
       - DB_SVC_URL=http://dbsvc:8090
     ports:
       - "8080:8080"
     networks:
       - pet-project_default
   dbsvc:
-    build: ./db-server
+    build:
+      context: ../
+      dockerfile: deploy/Dockerfile.db
     env_file:
-    - .env
+    - ../configs/.env
     ports:
       - "8090:8090"
-    environment:
-      - PG_DSN=${PG_DSN}
     networks:
       - pet-project_default
   redis:
