@@ -21,8 +21,6 @@ services:
       dockerfile: deploy/Dockerfile.db
     env_file:
     - ../configs/.env
-    ports:
-      - "8090:8090"
     networks:
       - pet-project_default
   redis:
