@@ -20,7 +20,6 @@ func buildGetExecQuery(givenQuery url.Values, count int) (string, []interface{})
 	execQuery := ""
 	if len(givenQuery) > 0 {
 		for k := range givenQuery {
-			log.Println(k)
 			if len(givenQuery[k]) == 1 {
 				for _, val := range givenQuery[k] {
 					cnt++
@@ -69,7 +68,6 @@ func buildGetExecQuery(givenQuery url.Values, count int) (string, []interface{})
 
 func DbGetEmployees(w http.ResponseWriter, r *http.Request) {
 	employees := []models.Employee{}
-	log.Println(config.PgDsn)
 	db, err := sql.Open("postgres", config.PgDsn)
 	if err != nil {
 		http.Error(w, "Возникла проблема при подключении к БД", http.StatusInternalServerError)
@@ -124,7 +122,6 @@ func DbPostEmployees(w http.ResponseWriter, r *http.Request) {
 	result, err := db.Exec("Insert into sotrudniki(id,name,secondname,job,otdel) VALUES"+placeholders, args...)
 	if err != nil {
 		http.Error(w, "Неизвестная ошибка при работе с БД", 520)
-		log.Printf(placeholders, args...)
 		log.Println("Ошибка в билде запроса")
 		return
 	}

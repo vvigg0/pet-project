@@ -95,7 +95,6 @@ func validateQuery(query url.Values) (string, bool) {
 		return "", false
 	}
 	validated := "?" + strings.Join(execStr, "&")
-	log.Println(validated)
 	if len(freq) > 2 {
 		return validated, false
 	}
