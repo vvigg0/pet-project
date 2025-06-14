@@ -18,7 +18,7 @@ import (
 	"unicode"
 )
 
-func IsValidWord(s string) error {
+func isValidWord(s string) error {
 	for _, r := range s {
 		if !unicode.IsLetter(r) {
 			return fmt.Errorf("не является валидной строкой")
@@ -27,8 +27,13 @@ func IsValidWord(s string) error {
 	return nil
 }
 
-func ValidateQuery(query url.Values) string {
+func validateQuery(query url.Values) (string, bool) {
+	if len(query) == 0 {
+		return "", true
+	}
+	freq := make(map[string]int)
 	execStr := []string{}
+	fmt.Println(query)
 	for k, param := range query {
 		if k == "id" {
 			for _, id := range param {
@@ -37,37 +42,41 @@ func ValidateQuery(query url.Values) string {
 					log.Println("Неверный query параметр ID - ", id)
 					continue
 				}
+				freq[k]++
 				execStr = append(execStr, fmt.Sprintf("id=%s", id))
 			}
 			break
 		} else if k == "name" {
 			for _, name := range param {
-				err := IsValidWord(name)
+				err := isValidWord(name)
 				if err != nil {
 					log.Println("Неверное имя - ", name)
 					continue
 				}
+				freq[k]++
 				execStr = append(execStr, fmt.Sprintf("name=%s", name))
 			}
 		} else if k == "secondname" {
 			for _, secondname := range param {
-				err := IsValidWord(secondname)
+				err := isValidWord(secondname)
 				if err != nil {
 					log.Println("Неверная фамилия - ", secondname)
 					continue
 				}
+				freq[k]++
 				execStr = append(execStr, fmt.Sprintf("secondname=%s", secondname))
 			}
 		} else if k == "job" {
 			for _, job := range param {
 				partsJob := strings.Split(job, "_")
 				for _, part := range partsJob {
-					err := IsValidWord(part)
+					err := isValidWord(part)
 					if err != nil {
 						log.Println("Неверная должность - ", job)
 						continue
 					}
 				}
+				freq[k]++
 				execStr = append(execStr, fmt.Sprintf("job=%s", job))
 			}
 		} else if k == "otdel" {
@@ -77,47 +86,60 @@ func ValidateQuery(query url.Values) string {
 					log.Println("Неверный query параметр otdel-", otdel)
 					continue
 				}
+				freq[k]++
 				execStr = append(execStr, fmt.Sprintf("otdel=%s", otdel))
 			}
 		}
 	}
 	if len(execStr) == 0 {
-		return ""
+		return "", false
 	}
-	return "?" + strings.Join(execStr, "&")
+	validated := "?" + strings.Join(execStr, "&")
+	log.Println(validated)
+	if len(freq) > 2 {
+		return validated, false
+	}
+	for _, v := range freq {
+		if v > 1 {
+			return validated, false
+		}
+	}
+	return validated, true
 }
-
 func HandleGetEmployees(w http.ResponseWriter, r *http.Request) {
 	urlParams := r.URL.Query()
-	legitQueryStr := ValidateQuery(urlParams)
-	cacheKey := "employees" + legitQueryStr
+	validQueryStr, shouldCache := validateQuery(urlParams)
 	var emps []models.Employee
 	start := time.Now()
-	val, err := rds.Client.Get(rds.Ctx, cacheKey).Result()
-	if err == nil {
-		_ = json.Unmarshal([]byte(val), &emps)
-		w.Header().Set("Content-Type", "text/plain;charset=utf-8")
-		for _, e := range emps {
-			fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
+	if shouldCache {
+		val, err := rds.Client.Get(rds.Ctx, "employees"+validQueryStr).Result()
+		if err == nil {
+			_ = json.Unmarshal([]byte(val), &emps)
+			w.Header().Set("Content-Type", "text/plain;charset=utf-8")
+			for _, e := range emps {
+				fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
+			}
+			log.Printf("Достали данные из кэша за %v", time.Since(start))
+			return
 		}
-		log.Printf("Достали данные из кэша за %v", time.Since(start))
-		return
 	}
 	start = time.Now()
-	resp, err := http.Get(config.Dbsvc + "/employees" + legitQueryStr)
+	resp, err := http.Get(config.Dbsvc + "/employees" + validQueryStr)
 	if err != nil {
 		http.Error(w, "Ошибка при выполнении запроса к БД", http.StatusInternalServerError)
 		return
 	}
 	defer resp.Body.Close()
-	log.Println(resp.Body)
 	err = json.NewDecoder(resp.Body).Decode(&emps)
 	if err != nil {
-		http.Error(w, "JSON хуйня", http.StatusInternalServerError)
+		http.Error(w, "JSON невалидный", http.StatusInternalServerError)
 		return
 	}
 	response, _ := json.Marshal(emps)
-	rds.Client.Set(rds.Ctx, cacheKey, response, time.Minute*10)
+	if shouldCache && len(emps) != 0 {
+		rds.Client.Set(rds.Ctx, "employees"+validQueryStr, response, time.Minute)
+		log.Println("Занесли в кэш запрос: " + "employees" + validQueryStr)
+	}
 	w.Header().Set("Content-Type", "text/plain;charset=utf-8")
 	for _, e := range emps {
 		fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
@@ -145,11 +167,40 @@ func HandlePostEmployees(w http.ResponseWriter, r *http.Request) {
 		names = names + " " + emp.Name
 	}
 	fmt.Fprintf(w, "Успешно добавлены сотрудники: %s", names)
+	clearCache(emps)
+}
+func findKeys(keys []string) []string {
+	result := []string{}
+	var cursor uint64
+	for i := 0; i < len(keys); i++ {
+		keyValue := strings.Split(keys[i], "=")
+		pattern := fmt.Sprintf("*%s=%v*", keyValue[0], keyValue[1])
+		for {
+			keys, newCursor, err := rds.Client.Scan(rds.Ctx, cursor, pattern, 100).Result()
+			if err != nil {
+				log.Println("Ошибка сканирования Redis: ", err)
+			}
+			result = append(result, keys...)
+			cursor = newCursor
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+	return result
 }
 func HandleDeleteEmployees(w http.ResponseWriter, r *http.Request) {
 	urlParams := r.URL.Query()
-	queryStr := ValidateQuery(urlParams)
-	req, err := http.NewRequest("DELETE", config.Dbsvc+"/employees"+queryStr, nil)
+	validQueryStr, shouldCache := validateQuery(urlParams)
+	var emps []models.Employee
+	if shouldCache {
+		var err error
+		emps, err = fetchForInvalidation(validQueryStr)
+		if err != nil {
+			log.Println("Не удалось получить сотрудников для удаления кэша")
+		}
+	}
+	req, err := http.NewRequest("DELETE", config.Dbsvc+"/employees"+validQueryStr, nil)
 	if err != nil {
 		http.Error(w, "Ошибка при создании запроса", http.StatusInternalServerError)
 		log.Println("Ошибка при создании запроса")
@@ -162,6 +213,9 @@ func HandleDeleteEmployees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	if shouldCache {
+		clearCache(emps)
+	}
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Сотрудники удалены")
 }
@@ -174,8 +228,16 @@ func HandlePutEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := json.Marshal(emp)
 	urlParams := r.URL.Query()
-	legitQueryStr := ValidateQuery(urlParams)
-	req, err := http.NewRequest("PUT", config.Dbsvc+"/employees"+legitQueryStr, bytes.NewBuffer(body))
+	validQueryStr, shouldCache := validateQuery(urlParams)
+	var emps []models.Employee
+	if shouldCache {
+		var err error
+		emps, err = fetchForInvalidation(validQueryStr)
+		if err != nil {
+			log.Println("Не удалось получить сотрудников для удаления кэша")
+		}
+	}
+	req, err := http.NewRequest("PUT", config.Dbsvc+"/employees"+validQueryStr, bytes.NewBuffer(body))
 	if err != nil {
 		http.Error(w, "Ошибка при создании запроса", http.StatusInternalServerError)
 		log.Println("Ошибка при создании запроса")
@@ -187,9 +249,46 @@ func HandlePutEmployees(w http.ResponseWriter, r *http.Request) {
 		log.Println("Ошибка при выполнении запроса", err)
 		return
 	}
+	clearCache(emps)
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintln(w, "Изменение выполнено")
+}
+func fetchForInvalidation(queryStr string) ([]models.Employee, error) {
+	resp, err := http.Get(config.Dbsvc + "/employees" + queryStr)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var emps []models.Employee
+	if err := json.NewDecoder(resp.Body).Decode(&emps); err != nil {
+		return nil, err
+	}
+	return emps, nil
+}
+func clearCache(emps []models.Employee) {
+	keys := make(map[string]int)
+	var uniqKeys []string
+	for _, emp := range emps {
+		keys[fmt.Sprintf("id=%v", emp.Id)] = 0
+		keys[fmt.Sprintf("name=%v", emp.Name)] = 0
+		keys[fmt.Sprintf("secondname=%v", emp.Secondname)] = 0
+		keys[fmt.Sprintf("job=%v", emp.Job)] = 0
+		keys[fmt.Sprintf("otdel=%v", emp.Otdel)] = 0
+	}
+	_, _ = rds.Client.Del(rds.Ctx, "employees").Result()
+	for k := range keys {
+		uniqKeys = append(uniqKeys, k)
+	}
+	confKeys := findKeys(uniqKeys)
+	for _, val := range confKeys {
+		_, err := rds.Client.Del(rds.Ctx, val).Result()
+		if err != nil {
+			continue
+		}
+	}
+	log.Println("Записи из кэша удалены успешно")
 }
 func Login(w http.ResponseWriter, r *http.Request) {
 	var creds struct {
