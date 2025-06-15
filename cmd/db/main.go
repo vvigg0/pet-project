@@ -12,7 +12,6 @@ import (
 func main() {
 	pg.Init()
 	http.HandleFunc("/employees", dbHandler.EmployeesHandler)
-	http.HandleFunc("/employee/", dbHandler.EmployeeHandler)
 	log.Println("DB сервер запущен на порте 8090")
 	err := http.ListenAndServe(":8090", nil)
 	if err != nil {

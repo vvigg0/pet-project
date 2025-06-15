@@ -11,7 +11,6 @@ import (
 func main() {
 	rds.Init()
 	http.Handle("/employees", middleware.RoleMiddleware(http.HandlerFunc(handler.EmployeesHandler)))
-	http.Handle("/employee/", middleware.RoleMiddleware(http.HandlerFunc(handler.EmployeeHandler)))
 	http.HandleFunc("/login", handler.LoginHandler)
 	log.Println("API сервер запущен на порте 8080")
 	err := http.ListenAndServe(":8080", nil)
