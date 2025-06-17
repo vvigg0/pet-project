@@ -119,7 +119,7 @@ func validateQuery(query url.Values) (string, bool) {
 //			@Param 	id 			   query  []string  false  "Фильтр: ?id=*" 							collectionFormat(multi)
 //			@Param	name		   query  []string  false  "Фильтр: ?name=*"						collectionFormat(multi)
 //			@Param	secondname	   query  []string  false  "Фильтр: ?secondname=*"					collectionFormat(multi)
-//			@Param	job			   query  []string  false  "Фильтр: ?job=*" (слова разделяются _ )	collectionFormat(multi)
+//			@Param	job			   query  []string  false  "Фильтр: ?job=* (слова разделять _ )"	collectionFormat(multi)
 //			@Param	otdel		   query  []string  false  "Фильтр: ?otdel=*"						collectionFormat(multi)
 //
 //			@Success	200		{string}	string "Список сотрудников построчно"
