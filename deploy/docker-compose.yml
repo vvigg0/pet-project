@@ -19,8 +19,24 @@ services:
     build:
       context: ../
       dockerfile: deploy/Dockerfile.db
+    depends_on:
+      - postgres
     env_file:
     - ../configs/.env
+    networks:
+      - pet-project_default
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: db
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../initdb:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
     networks:
       - pet-project_default
   redis:
@@ -37,3 +53,4 @@ networks:
     driver: bridge
 volumes:
   redis_data:
+  pg_data:
