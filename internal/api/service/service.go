@@ -105,6 +105,27 @@ func validateQuery(query url.Values) (string, bool) {
 	}
 	return validated, true
 }
+
+// HandleGetEmployees godoc
+//
+//			@Summary	 Вывод сотрудников
+//			@Description Выводит сотрудников, отфильтрованных по query string
+//			@Description •Если параметров нет - возвращает всех сотрудников.
+//			@Description •Можно вводить несколько параметров одного ключа (?id=1&id=2)
+//			@Tags		 Employees
+//	 		@Produce	 plain
+//
+//			@Param  Authorization  header string    true   "Authentication header"
+//			@Param 	id 			   query  []string  false  "Фильтр: ?id=*" 							collectionFormat(multi)
+//			@Param	name		   query  []string  false  "Фильтр: ?name=*"						collectionFormat(multi)
+//			@Param	secondname	   query  []string  false  "Фильтр: ?secondname=*"					collectionFormat(multi)
+//			@Param	job			   query  []string  false  "Фильтр: ?job=*" (слова разделяются _ )	collectionFormat(multi)
+//			@Param	otdel		   query  []string  false  "Фильтр: ?otdel=*"						collectionFormat(multi)
+//
+//			@Success	200		{string}	string "Список сотрудников построчно"
+//			@Success	204		{string}	string "По данному запросу никого нет"
+//			@Failure	500 	{string}	string "Ошибка при выполнении запроса к БД  ИЛИ  БД отдало невалидный JSON"
+//			@Router		/employees [get]
 func HandleGetEmployees(w http.ResponseWriter, r *http.Request) {
 	urlParams := r.URL.Query()
 	validQueryStr, shouldCache := validateQuery(urlParams)
@@ -131,7 +152,7 @@ func HandleGetEmployees(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	err = json.NewDecoder(resp.Body).Decode(&emps)
 	if err != nil {
-		http.Error(w, "JSON невалидный", http.StatusInternalServerError)
+		http.Error(w, "БД отдало невалидный JSON", http.StatusInternalServerError)
 		return
 	}
 	response, _ := json.Marshal(emps)
@@ -139,12 +160,35 @@ func HandleGetEmployees(w http.ResponseWriter, r *http.Request) {
 		rds.Client.Set(rds.Ctx, "employees"+validQueryStr, response, time.Minute)
 		log.Println("Занесли в кэш запрос: " + "employees" + validQueryStr)
 	}
-	w.Header().Set("Content-Type", "text/plain;charset=utf-8")
-	for _, e := range emps {
-		fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
+	if len(emps) > 0 {
+		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "text/plain;charset=utf-8")
+		for _, e := range emps {
+			fmt.Fprintf(w, "%d. %s %s %s %d\n", e.Id, e.Name, e.Secondname, e.Job, e.Otdel)
+		}
+	} else {
+		w.WriteHeader(http.StatusNoContent)
+		w.Header().Set("Content-Type", "text/plain;charset=utf-8")
+		fmt.Fprintf(w, "По данному запросу никого нет")
 	}
 	log.Printf("Достали данные из БД за %v", time.Since(start))
 }
+
+// HandlePostEmployees godoc
+//
+//	@Summary	 Добавление сотрудников
+//	@Description Добавляет сотрудников в БД(все поля JSON должны быть заполенны)
+//	@Tags		 Employees
+//	@Accept		 json
+//	@Produce	 plain
+//
+//	@Param  	 Authorization  header 	string 				true 	"Authentication header"
+//	@Param		 employees	    body	[]models.Employee	true	"Массив сотрудников"
+//
+//	@Success	 201	{string}	string	"Успешно добавлены сотрудники: ... ..."
+//	@Failure	 400	{string}	string	"Неверный json"
+//	@Failure 	 500	{string}	string	"Ошибка при выполнении запроса к БД"
+//	@Router		 /employees [post]
 func HandlePostEmployees(w http.ResponseWriter, r *http.Request) {
 	var emps []models.Employee
 	body, _ := io.ReadAll(r.Body)
@@ -156,7 +200,7 @@ func HandlePostEmployees(w http.ResponseWriter, r *http.Request) {
 	body, _ = json.Marshal(emps)
 	resp, err := http.Post(config.Dbsvc+"/employees", "application/json", bytes.NewBuffer(body))
 	if err != nil || http.StatusCreated != resp.StatusCode {
-		http.Error(w, "DB сервер тупанул", http.StatusInternalServerError)
+		http.Error(w, "Ошибка при выполнении запроса к БД", http.StatusInternalServerError)
 		log.Println(err)
 		return
 	}
@@ -188,6 +232,27 @@ func findKeys(keys []string) []string {
 	}
 	return result
 }
+
+// HandleDeleteEmployees godoc
+//
+//		@Summary	 Удаление сотрудников
+//		@Description Удаляет сотрудников, отфильтрованных по query string
+//		@Description •Если параметров нет - удаляет **всех** сотрудников (опасная операция!)
+//		@Description •Можно вводить несколько параметров одного ключа (?id=1&id=2)
+//		@Tags		 Employees
+//	 	@Produce	 plain
+//
+//		@Param  Authorization  header string    true   "Authentication header"
+//		@Param 	id 			   query  []string  false  "Фильтр: ?id=*" 							collectionFormat(multi)
+//		@Param	name		   query  []string  false  "Фильтр: ?name=*"						collectionFormat(multi)
+//		@Param	secondname	   query  []string  false  "Фильтр: ?secondname=*"					collectionFormat(multi)
+//		@Param	job			   query  []string  false  "Фильтр: ?job=*" (слова разделяются _ )	collectionFormat(multi)
+//		@Param	otdel		   query  []string  false  "Фильтр: ?otdel=*"						collectionFormat(multi)
+//
+//		@Success 201 {string} string "Сотрудники удалены"
+//		@Failure 500 {string} string "Ошибка при создании запроса"
+//		@Failure 502 {string} string "Ошибка при выполнении запроса"
+//		@Router /employees [delete]
 func HandleDeleteEmployees(w http.ResponseWriter, r *http.Request) {
 	urlParams := r.URL.Query()
 	validQueryStr, shouldCache := validateQuery(urlParams)
@@ -215,9 +280,34 @@ func HandleDeleteEmployees(w http.ResponseWriter, r *http.Request) {
 	if shouldCache {
 		clearCache(emps)
 	}
+	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "Сотрудники удалены")
 }
+
+// HandlePutEmployees godoc
+//
+//		@Summary	 Изменение сотрудников
+//		@Description Изменяет сотрудников, отфильтрованных по query string,меняя их данные на данные из JSON
+//		@Description •Если параметров нет - изменяет **всех** сотрудников (опасная операция!)
+//		@Description •Можно вводить несколько параметров одного ключа (?id=1&id=2)
+//		@Tags		 Employees
+//		@Accept		 json
+//	 	@Produce	 plain
+//
+//		@Param  Authorization  header string    		true   	"Authentication header"
+//		@Param 	id 			   query  []string  		false  	"Фильтр: ?id=*" 							collectionFormat(multi)
+//		@Param	name		   query  []string  		false  	"Фильтр: ?name=*"						collectionFormat(multi)
+//		@Param	secondname	   query  []string  		false  	"Фильтр: ?secondname=*"					collectionFormat(multi)
+//		@Param	job			   query  []string  		false  	"Фильтр: ?job=*" (слова разделяются _ )	collectionFormat(multi)
+//		@Param	otdel		   query  []string  		false  	"Фильтр: ?otdel=*"						collectionFormat(multi)
+//		@Param  data		   body	  models.Employee	true	"Данные на которые надо поменять"
+//
+//		@Success  201 {string}  string  "Изменение выполнено"
+//		@Failure  400 {string}	string  "Неверный JSON"
+//		@Failure 500 {string} string "Ошибка при создании запроса"
+//		@Failure 502 {string} string "Ошибка при выполнении запроса"
+//		@Router /employees [put]
 func HandlePutEmployees(w http.ResponseWriter, r *http.Request) {
 	var emp models.Employee
 	err := json.NewDecoder(r.Body).Decode(&emp)
@@ -250,6 +340,7 @@ func HandlePutEmployees(w http.ResponseWriter, r *http.Request) {
 	}
 	clearCache(emps)
 	defer resp.Body.Close()
+	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintln(w, "Изменение выполнено")
 }
@@ -289,6 +380,20 @@ func clearCache(emps []models.Employee) {
 	}
 	log.Println("Записи из кэша удалены успешно")
 }
+
+// Login godoc
+//
+// @Summary		Вход для получения JWT токена
+// @Description Дает токен+роль,роль админа выдается при вводе данных админа из .env файла
+// @Tags 		Authorization
+// @Accept		json
+// @Produce		json
+//
+// @Param credentials body object{username=string,password=string} true "Данные для входа"
+// @Success 201 {object} models.AuthResponse "JWT+роль"
+// @Failure 400 {string} string "Неверные данные"
+// @Failure 500 {string} string "Ошибка генерации токена"
+// @Router	/login [post]
 func Login(w http.ResponseWriter, r *http.Request) {
 	var creds struct {
 		Username string `json:"username"`
@@ -296,7 +401,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
-		http.Error(w, "Неверный JSON", http.StatusBadRequest)
+		http.Error(w, "Неверные данные", http.StatusBadRequest)
 		return
 	}
 	var role string
@@ -312,7 +417,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Ошибка генерации токена: %v", err)
 		return
 	}
+	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": signedToken})
-	fmt.Fprintf(w, "Ваша роль: %s", role)
+	json.NewEncoder(w).Encode(models.AuthResponse{Token: signedToken, Role: role})
 }

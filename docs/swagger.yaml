@@ -1,0 +1,303 @@
+definitions:
+  models.AuthResponse:
+    properties:
+      role:
+        type: string
+      token:
+        type: string
+    type: object
+  models.Employee:
+    properties:
+      id:
+        type: integer
+      job:
+        type: string
+      name:
+        type: string
+      otdel:
+        type: integer
+      secondname:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /employees:
+    delete:
+      description: |-
+        Удаляет сотрудников, отфильтрованных по query string
+        •Если параметров нет - удаляет **всех** сотрудников (опасная операция!)
+        •Можно вводить несколько параметров одного ключа (?id=1&id=2)
+      parameters:
+      - description: Authentication header
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - collectionFormat: multi
+        description: 'Фильтр: ?id=*'
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?name=*'
+        in: query
+        items:
+          type: string
+        name: name
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?secondname=*'
+        in: query
+        items:
+          type: string
+        name: secondname
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?job=*'
+        in: query
+        items:
+          type: string
+        name: job
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?otdel=*'
+        in: query
+        items:
+          type: string
+        name: otdel
+        type: array
+      produces:
+      - text/plain
+      responses:
+        "201":
+          description: Сотрудники удалены
+          schema:
+            type: string
+        "500":
+          description: Ошибка при создании запроса
+          schema:
+            type: string
+        "502":
+          description: Ошибка при выполнении запроса
+          schema:
+            type: string
+      summary: Удаление сотрудников
+      tags:
+      - Employees
+    get:
+      description: |-
+        Выводит сотрудников, отфильтрованных по query string
+        •Если параметров нет - возвращает всех сотрудников.
+        •Можно вводить несколько параметров одного ключа (?id=1&id=2)
+      parameters:
+      - description: Authentication header
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - collectionFormat: multi
+        description: 'Фильтр: ?id=*'
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?name=*'
+        in: query
+        items:
+          type: string
+        name: name
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?secondname=*'
+        in: query
+        items:
+          type: string
+        name: secondname
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?job=*'
+        in: query
+        items:
+          type: string
+        name: job
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?otdel=*'
+        in: query
+        items:
+          type: string
+        name: otdel
+        type: array
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Список сотрудников построчно
+          schema:
+            type: string
+        "204":
+          description: По данному запросу никого нет
+          schema:
+            type: string
+        "500":
+          description: Ошибка при выполнении запроса к БД  ИЛИ  БД отдало невалидный
+            JSON
+          schema:
+            type: string
+      summary: Вывод сотрудников
+      tags:
+      - Employees
+    post:
+      consumes:
+      - application/json
+      description: Добавляет сотрудников в БД(все поля JSON должны быть заполенны)
+      parameters:
+      - description: Authentication header
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - description: Массив сотрудников
+        in: body
+        name: employees
+        required: true
+        schema:
+          items:
+            $ref: '#/definitions/models.Employee'
+          type: array
+      produces:
+      - text/plain
+      responses:
+        "201":
+          description: 'Успешно добавлены сотрудники: ... ...'
+          schema:
+            type: string
+        "400":
+          description: Неверный json
+          schema:
+            type: string
+        "500":
+          description: Ошибка при выполнении запроса к БД
+          schema:
+            type: string
+      summary: Добавление сотрудников
+      tags:
+      - Employees
+    put:
+      consumes:
+      - application/json
+      description: |-
+        Изменяет сотрудников, отфильтрованных по query string,меняя их данные на данные из JSON
+        •Если параметров нет - изменяет **всех** сотрудников (опасная операция!)
+        •Можно вводить несколько параметров одного ключа (?id=1&id=2)
+      parameters:
+      - description: Authentication header
+        in: header
+        name: Authorization
+        required: true
+        type: string
+      - collectionFormat: multi
+        description: 'Фильтр: ?id=*'
+        in: query
+        items:
+          type: string
+        name: id
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?name=*'
+        in: query
+        items:
+          type: string
+        name: name
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?secondname=*'
+        in: query
+        items:
+          type: string
+        name: secondname
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?job=*'
+        in: query
+        items:
+          type: string
+        name: job
+        type: array
+      - collectionFormat: multi
+        description: 'Фильтр: ?otdel=*'
+        in: query
+        items:
+          type: string
+        name: otdel
+        type: array
+      - description: Данные на которые надо поменять
+        in: body
+        name: data
+        required: true
+        schema:
+          $ref: '#/definitions/models.Employee'
+      produces:
+      - text/plain
+      responses:
+        "201":
+          description: Изменение выполнено
+          schema:
+            type: string
+        "400":
+          description: Неверный JSON
+          schema:
+            type: string
+        "500":
+          description: Ошибка при создании запроса
+          schema:
+            type: string
+        "502":
+          description: Ошибка при выполнении запроса
+          schema:
+            type: string
+      summary: Изменение сотрудников
+      tags:
+      - Employees
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Дает токен+роль,роль админа выдается при вводе данных админа из
+        .env файла
+      parameters:
+      - description: Данные для входа
+        in: body
+        name: credentials
+        required: true
+        schema:
+          properties:
+            password:
+              type: string
+            username:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: JWT+роль
+          schema:
+            $ref: '#/definitions/models.AuthResponse'
+        "400":
+          description: Неверные данные
+          schema:
+            type: string
+        "500":
+          description: Ошибка генерации токена
+          schema:
+            type: string
+      summary: Вход для получения JWT токена
+      tags:
+      - Authorization
+swagger: "2.0"
